@@ -47,6 +47,22 @@ export function selectDueShowtimes(showtimes, lastCheckedMap, nowMs, config) {
   return { due, skippedPassed };
 }
 
+// The real earliest time ANY tracked showtime will next become due — not to
+// be confused with the heartbeat tick (which just wakes the loop up to ask
+// "is anything due yet?" and is often a no-op). Returns null if there are no
+// active (not-yet-started) showtimes.
+export function nextDueAtMs(showtimes, lastCheckedMap, nowMs, config) {
+  let earliest = null;
+  for (const st of showtimes) {
+    const cadence = pickCadenceSeconds(st.datetime, nowMs, config);
+    if (cadence === null) continue; // already started
+    const lastChecked = lastCheckedMap[st.id] || 0;
+    const dueAt = lastChecked ? lastChecked + cadence * 1000 : nowMs;
+    if (earliest === null || dueAt < earliest) earliest = dueAt;
+  }
+  return earliest;
+}
+
 // --- schedule filter (which showings the user actually cares about) --------
 // Discovery finds every real showtime; this filters that down to a preferred
 // weekly schedule, e.g. "no 2am/6am ever, weekdays only 6pm, Friday 6pm+10pm,

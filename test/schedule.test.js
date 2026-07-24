@@ -4,6 +4,7 @@ import {
   pickCadenceSeconds,
   isDue,
   selectDueShowtimes,
+  nextDueAtMs,
   localDayHour,
   isShowtimeAllowed,
   applyScheduleFilter,
@@ -81,6 +82,39 @@ test("selectDueShowtimes: empty list returns empty results", () => {
   const { due, skippedPassed } = selectDueShowtimes([], {}, now, config);
   assert.deepEqual(due, []);
   assert.deepEqual(skippedPassed, []);
+});
+
+test("nextDueAtMs: never-checked showtime is due right now", () => {
+  const showtimes = [{ id: "a", datetime: "2026-07-24T18:00:00.000Z" }];
+  assert.equal(nextDueAtMs(showtimes, {}, now, config), now);
+});
+
+test("nextDueAtMs: recently-checked showtime is due after its full cadence", () => {
+  const lastChecked = now - 60 * 1000; // checked 1 min ago
+  const showtimes = [{ id: "a", datetime: "2026-07-24T18:00:00.000Z" }]; // near tier, 300s cadence
+  const lastCheckedMap = { a: lastChecked };
+  assert.equal(nextDueAtMs(showtimes, lastCheckedMap, now, config), lastChecked + 300 * 1000);
+});
+
+test("nextDueAtMs: picks the EARLIEST across multiple showtimes, not the first in the list", () => {
+  const showtimes = [
+    { id: "far", datetime: "2026-07-26T12:00:00.000Z" }, // far tier, 1800s cadence
+    { id: "near", datetime: "2026-07-24T18:00:00.000Z" }, // near tier, 300s cadence
+  ];
+  const lastCheckedMap = {
+    far: now - 1000, // checked 1s ago -> due at now + 1799s
+    near: now - 250 * 1000, // checked 250s ago -> due at now + 50s (sooner!)
+  };
+  assert.equal(nextDueAtMs(showtimes, lastCheckedMap, now, config), now - 250 * 1000 + 300 * 1000);
+});
+
+test("nextDueAtMs: ignores already-started showtimes", () => {
+  const showtimes = [{ id: "passed", datetime: "2026-07-24T11:00:00.000Z" }];
+  assert.equal(nextDueAtMs(showtimes, {}, now, config), null);
+});
+
+test("nextDueAtMs: null when there are no active showtimes at all", () => {
+  assert.equal(nextDueAtMs([], {}, now, config), null);
 });
 
 // --- schedule filter (real showtimes from a live discovery run) ------------

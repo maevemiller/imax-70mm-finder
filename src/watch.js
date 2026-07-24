@@ -25,7 +25,7 @@ import {
 } from "./scan.js";
 import { discoverWindow } from "./discover.js";
 import { readLastCheckedMs } from "./state.js";
-import { selectDueShowtimes } from "./schedule.js";
+import { selectDueShowtimes, nextDueAtMs } from "./schedule.js";
 import { redact, getUpdates, isFromConfiguredChat, sendMessage } from "./notify.js";
 import { formatStatusMessage } from "./status.js";
 import path from "node:path";
@@ -117,7 +117,14 @@ async function main() {
     console.warn(`[telegram] could not check for a status-poll backlog: ${redact(err.message)} — status replies may be unavailable`);
   }
 
-  async function checkTelegramCommands(nextAttemptAtMs, backoffMs) {
+  // `nextTickAtMs` is when the CURRENT sleep finishes — even a showtime whose
+  // own cadence says "due already" can't actually be checked before then,
+  // since the loop only re-evaluates due-ness once it wakes up. Updated right
+  // before each wait below. `backoff` is read directly from the closure
+  // (declared further down but only ever read once the loop is running).
+  let nextTickAtMs = Date.now();
+
+  async function checkTelegramCommands() {
     let updates;
     try {
       updates = await getUpdates(telegramOffset);
@@ -128,6 +135,18 @@ async function main() {
     for (const u of updates) {
       telegramOffset = u.update_id + 1;
       if (!isFromConfiguredChat(u)) continue;
+
+      const nowMs = Date.now();
+      const lastCheckedMap = {};
+      for (const s of activeShowtimes) {
+        const persisted = await readLastCheckedMs(DATA_DIR, s.id);
+        lastCheckedMap[s.id] = persisted || firstSeenMs.get(s.id) || nowMs;
+      }
+      // The real earliest a showtime could next be checked, vs. when the
+      // loop will actually next wake up to look — whichever is later wins.
+      const scheduleEstimate = nextDueAtMs(activeShowtimes, lastCheckedMap, nowMs, config);
+      const nextAttemptAtMs = Math.max(scheduleEstimate ?? nextTickAtMs, nextTickAtMs);
+
       const state = {
         startedAtMs,
         movieTitle: config.movieTitle,
@@ -137,11 +156,11 @@ async function main() {
         activeShowtimesCount: activeShowtimes.length,
         lastDiscoveryMs,
         lastCheck,
-        backoffMs,
+        backoffMs: backoff,
         nextAttemptAtMs,
       };
       try {
-        await sendMessage(formatStatusMessage(state, Date.now()));
+        await sendMessage(formatStatusMessage(state, nowMs));
       } catch (err) {
         console.warn(`[telegram] status reply failed: ${redact(err.message)}`);
       }
@@ -151,13 +170,14 @@ async function main() {
   // Waits `totalMs`, polling Telegram every TELEGRAM_POLL_MS along the way
   // instead of one long sleep — so a status reply doesn't wait out a full
   // (up to 10-minute) rate-limit backoff.
-  async function waitAndPollTelegram(totalMs, nextAttemptAtMs, backoffMs) {
+  async function waitAndPollTelegram(totalMs) {
+    nextTickAtMs = Date.now() + totalMs;
     let remaining = totalMs;
     while (remaining > 0 && !stopping) {
       const chunk = Math.min(TELEGRAM_POLL_MS, remaining);
       await sleep(chunk);
       remaining -= chunk;
-      await checkTelegramCommands(nextAttemptAtMs, backoffMs);
+      await checkTelegramCommands();
     }
   }
 
@@ -233,8 +253,7 @@ async function main() {
     }
 
     if (!stopping) {
-      const totalWaitMs = heartbeatMs + backoff;
-      await waitAndPollTelegram(totalWaitMs, Date.now() + totalWaitMs, backoff);
+      await waitAndPollTelegram(heartbeatMs + backoff);
     }
   }
 }
