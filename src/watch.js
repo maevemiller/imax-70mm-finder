@@ -26,11 +26,17 @@ import {
 import { discoverWindow } from "./discover.js";
 import { readLastCheckedMs } from "./state.js";
 import { selectDueShowtimes } from "./schedule.js";
-import { redact } from "./notify.js";
+import { redact, getUpdates, isFromConfiguredChat, sendMessage } from "./notify.js";
+import { formatStatusMessage } from "./status.js";
 import path from "node:path";
 
 const DATA_DIR = path.join(ROOT, "data");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// How often to check Telegram for a new "are you still running?" message —
+// independent of the AMC heartbeat/backoff, so a status reply stays fast (a
+// backoff can grow to 10 minutes; nobody should wait that long to hear back).
+const TELEGRAM_POLL_MS = 20000;
 
 async function runDiscovery(context, config) {
   const windowHours = config.autoDiscover?.windowHours ?? 72;
@@ -98,6 +104,63 @@ async function main() {
   const firstSeenMs = new Map();
   markFirstSeen(firstSeenMs, activeShowtimes, Date.now());
 
+  const startedAtMs = Date.now();
+  let lastCheck = null; // { atMs, results } — set after the first real due-check batch
+
+  // Skip any backlog (messages sent before this process started) so startup
+  // doesn't reply to stale messages.
+  let telegramOffset = 0;
+  try {
+    const backlog = await getUpdates(0);
+    if (backlog.length) telegramOffset = backlog[backlog.length - 1].update_id + 1;
+  } catch (err) {
+    console.warn(`[telegram] could not check for a status-poll backlog: ${redact(err.message)} — status replies may be unavailable`);
+  }
+
+  async function checkTelegramCommands(nextAttemptAtMs, backoffMs) {
+    let updates;
+    try {
+      updates = await getUpdates(telegramOffset);
+    } catch (err) {
+      console.warn(`[telegram] status-poll failed: ${redact(err.message)}`);
+      return;
+    }
+    for (const u of updates) {
+      telegramOffset = u.update_id + 1;
+      if (!isFromConfiguredChat(u)) continue;
+      const state = {
+        startedAtMs,
+        movieTitle: config.movieTitle,
+        format: config.format,
+        theatreName: config.theatreName,
+        minAdjacent: config.minAdjacent,
+        activeShowtimesCount: activeShowtimes.length,
+        lastDiscoveryMs,
+        lastCheck,
+        backoffMs,
+        nextAttemptAtMs,
+      };
+      try {
+        await sendMessage(formatStatusMessage(state, Date.now()));
+      } catch (err) {
+        console.warn(`[telegram] status reply failed: ${redact(err.message)}`);
+      }
+    }
+  }
+
+  // Waits `totalMs`, polling Telegram every TELEGRAM_POLL_MS along the way
+  // instead of one long sleep — so a status reply doesn't wait out a full
+  // (up to 10-minute) rate-limit backoff.
+  async function waitAndPollTelegram(totalMs, nextAttemptAtMs, backoffMs) {
+    let remaining = totalMs;
+    while (remaining > 0 && !stopping) {
+      const chunk = Math.min(TELEGRAM_POLL_MS, remaining);
+      await sleep(chunk);
+      remaining -= chunk;
+      await checkTelegramCommands(nextAttemptAtMs, backoffMs);
+    }
+  }
+
   if (autoDiscover) {
     console.log("Running initial discovery...");
     activeShowtimes = await runDiscovery(context, config);
@@ -147,6 +210,7 @@ async function main() {
       console.log(`--- checking ${due.length} due showtime(s) @ ${new Date().toLocaleTimeString()}: ${due.map((s) => s.id).join(", ")} ---`);
       try {
         const results = await scanAll(context, config, due.map((s) => s.id), pacer);
+        lastCheck = { atMs: Date.now(), results };
         rateLimited = results.some((r) => r.blocked && r.blocked.startsWith("rate-limited"));
 
         // The browser/context can die mid-run (crash, or Windows suspending a
@@ -168,7 +232,10 @@ async function main() {
       if (rateLimited) console.warn(`[backoff] rate-limited; adding ${Math.round(backoff / 1000)}s to next heartbeat`);
     }
 
-    if (!stopping) await sleep(heartbeatMs + backoff);
+    if (!stopping) {
+      const totalWaitMs = heartbeatMs + backoff;
+      await waitAndPollTelegram(totalWaitMs, Date.now() + totalWaitMs, backoff);
+    }
   }
 }
 

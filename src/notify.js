@@ -58,3 +58,25 @@ export async function alert({ caption, imagePath }) {
     await sendMessage(caption);
   }
 }
+
+// Short-poll Telegram for new incoming messages (timeout=0 -> returns
+// immediately). `offset` should be the last-seen update_id + 1 so already-
+// processed messages aren't returned again. Used to let the user message the
+// bot and get a status reply back, without needing a public webhook.
+export async function getUpdates(offset) {
+  const { token } = creds();
+  const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=${offset}&timeout=0`);
+  if (!res.ok) {
+    throw new Error(redact(`Telegram getUpdates failed: ${res.status} ${await res.text()}`));
+  }
+  const data = await res.json();
+  return data.result;
+}
+
+// Only respond to the configured chat — never chatter with a stranger who
+// happens to message the bot.
+export function isFromConfiguredChat(update) {
+  const chatId = update?.message?.chat?.id;
+  const expected = process.env.TELEGRAM_CHAT_ID;
+  return chatId != null && expected != null && String(chatId) === String(expected);
+}
