@@ -159,6 +159,13 @@ Press **Ctrl+C** to stop.
 "Qualifying" means: available ordinary seats (wheelchair/companion/accessible
 seats are ignored) that form a same-row run of at least `minAdjacent`.
 
+## Checking on it
+
+While `npm run watch` is running, message your Telegram bot **anything** —
+it'll reply with a status: how long it's been running, how many showtimes
+it's tracking, the result of its last check, and when it'll try again. Useful
+for confirming it's still alive without needing to look at the terminal.
+
 ## Files
 
 - `config.json` — what to watch.
@@ -167,6 +174,7 @@ seats are ignored) that form a same-row run of at least `minAdjacent`.
 - `src/state.js` — remembers seats between scans; decides when to alert.
 - `src/scan.js` — one scan (open page, detect seats, screenshot, notify) + the global rate-limit pacer.
 - `src/discover.js` — finds real showtime IDs from the theatre's listing page, including the rolling-window mode.
+- `src/status.js` — formats the Telegram status reply.
 - `src/schedule.js` — decides which showtimes are due for a check (near/far cadence tiers).
 - `src/notify.js` — sends the Telegram message + photo.
 - `src/watch.js` — the long-running loop: refreshes discovery, checks due showtimes.
