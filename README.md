@@ -1,8 +1,8 @@
-# AMC Seat Watch (Windows + Telegram)
+# imax-70mm-finder
 
-Watches an AMC showtime's seat map and sends you a **Telegram** message with a
-screenshot the moment seats matching your rules become available (e.g. *two
-seats together* for a specific IMAX 70mm showing).
+Help find IMAX 70mm tickets. Watches an AMC showtime's seat map and sends you
+a **Telegram** message with a screenshot the moment seats matching your rules
+become available (e.g. *two seats together* for a specific IMAX 70mm showing).
 
 This is a Windows port of the macOS/Hermes project
 [ddinch/amc-seat-watch](https://github.com/ddinch/amc-seat-watch). The seat
