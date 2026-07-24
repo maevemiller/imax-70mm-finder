@@ -1,0 +1,43 @@
+{
+  "_help": "Fill in the fields below for the showing you want to watch. See README section 'Filling in config.json'.",
+
+  "movieTitle": "The Odyssey",
+  "format": "IMAX 70MM",
+  "theatreName": "AMC Lincoln Square 13",
+
+  "theatreShowtimesUrl": "https://www.amctheatres.com/movie-theatres/new-york-city/amc-lincoln-square-13/showtimes",
+
+  "_autoDiscoverNote": "When enabled, the watcher re-discovers real showtime ids itself (see src/discover.js) for a rolling window, instead of a hand-maintained list — no more manually copying seat URLs or refreshing stale ids.",
+  "autoDiscover": {
+    "enabled": true,
+    "windowHours": 72,
+    "refreshHours": 6
+  },
+
+  "minAdjacent": 2,
+
+  "_scheduleFilterNote": "Narrows discovered showtimes down to a preferred weekly schedule. Days are 0=Sun..6=Sat; hours are local 24h time in timeZone. Current rule: no 2am/6am ever, Mon-Thu only 6pm, Fri 6pm+10pm, Sat/Sun anything else (10am/2pm/6pm/10pm).",
+  "scheduleFilter": {
+    "timeZone": "America/New_York",
+    "allowedHoursByDay": {
+      "0": [10, 14, 18, 22],
+      "1": [18],
+      "2": [18],
+      "3": [18],
+      "4": [18],
+      "5": [18, 22],
+      "6": [10, 14, 18, 22]
+    }
+  },
+
+  "_cadenceNote": "The AMC seat-selection page (/seats) is much more aggressively rate-limited than other AMC pages — repeated live testing got temporarily banned (Cloudflare Error 1015) after only a handful of rapid requests, with the ban duration growing each time. The numbers below are conservative starting points based on limited testing, NOT a confirmed-safe rate. Lower them carefully and watch the logs for '[block]' lines.",
+  "heartbeatSeconds": 60,
+  "nearWindowHours": 24,
+  "nearCadenceSeconds": 300,
+  "farCadenceSeconds": 1800,
+  "interShowtimeDelaySeconds": 90,
+
+  "requireFormatMatch": true,
+
+  "firstRunHeadful": true
+}

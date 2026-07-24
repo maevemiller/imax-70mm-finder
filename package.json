@@ -1,0 +1,18 @@
+{
+  "name": "amc-seat-watch",
+  "version": "1.0.0",
+  "description": "Deterministic AMC seat-availability watcher with Telegram alerts (Windows port of ddinch/amc-seat-watch).",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "scan": "node src/scan.js",
+    "watch": "node src/watch.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}
