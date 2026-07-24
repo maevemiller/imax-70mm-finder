@@ -78,7 +78,7 @@ async function main() {
       `Press Ctrl+C to stop.\n`
   );
 
-  const context = await openContext(config);
+  let context = await openContext(config);
 
   let stopping = false;
   const stop = async () => {
@@ -148,6 +148,19 @@ async function main() {
       try {
         const results = await scanAll(context, config, due.map((s) => s.id), pacer);
         rateLimited = results.some((r) => r.blocked && r.blocked.startsWith("rate-limited"));
+
+        // The browser/context can die mid-run (crash, or Windows suspending a
+        // visible window during sleep — keep the PC awake while watching).
+        // Every further request on a dead context fails the same way, so
+        // reopen a fresh one rather than spinning uselessly forever.
+        if (results.some((r) => r.contextClosed)) {
+          console.warn("[recover] browser context died — reopening a fresh one");
+          try {
+            await context.close();
+          } catch {}
+          context = await openContext(config);
+          console.log("[recover] browser context reopened.");
+        }
       } catch (err) {
         console.error(`[scan error] ${redact(err.message)}`);
       }

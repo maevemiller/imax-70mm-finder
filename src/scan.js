@@ -235,6 +235,16 @@ export async function scanShowtime(context, config, showtimeId, pacer) {
   }
 }
 
+// Playwright throws messages like "Target page, context or browser has been
+// closed" (or "Target closed") when the underlying browser/context has died —
+// e.g. a crash, or Windows suspending/killing the visible Chromium window
+// during sleep. Every subsequent page.goto in the SAME context will fail the
+// same way, so this needs the same "stop the batch immediately" treatment as
+// a rate-limit block, plus a signal to reopen a fresh context.
+function isContextClosedError(message) {
+  return /has been closed|target closed/i.test(String(message || ""));
+}
+
 // `ids` defaults to every configured showtime (config.showtimes / legacy
 // config.showtimeIds) — pass an explicit subset (e.g. from watch.js's
 // selectDueShowtimes) to only check the ones that are actually due. `pacer`
@@ -250,6 +260,12 @@ export async function scanAll(context, config, ids, pacer) {
     try {
       result = await scanShowtime(context, config, id, activePacer);
     } catch (err) {
+      if (isContextClosedError(err.message)) {
+        console.error(`  [context-closed] browser/context died — aborting batch, will reopen`);
+        result = { showtimeId: id, error: err.message, contextClosed: true };
+        results.push(result);
+        break;
+      }
       console.error(`  [error] showtime ${id}: ${redact(err.message)}`);
       result = { showtimeId: id, error: err.message };
     }
