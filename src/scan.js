@@ -201,19 +201,6 @@ export async function scanShowtime(context, config, showtimeId, pacer) {
     await writeState(DATA_DIR, showtimeId, qualifying);
 
     if (decision.shouldAlert) {
-      await fs.mkdir(SHOTS_DIR, { recursive: true });
-      const shot = path.join(SHOTS_DIR, `showtime-${showtimeId}-${Date.now()}.png`);
-      // A fullPage screenshot crashed Playwright on a real seat page (the grid
-      // container renders at an absurd height — a Skia allocation error).
-      // Screenshotting just the seat-grid element avoids that and is a more
-      // useful image anyway (no surrounding page chrome).
-      const grid = page.locator('[role="grid"][aria-label="Seat Selection Map"]');
-      if (await grid.count() > 0) {
-        await grid.first().screenshot({ path: shot });
-      } else {
-        await page.screenshot({ path: shot }); // fallback: viewport only, not fullPage
-      }
-
       const caption =
         `🎬 Seats available!\n` +
         `${config.movieTitle} (${config.format})\n` +
@@ -222,9 +209,30 @@ export async function scanShowtime(context, config, showtimeId, pacer) {
         `New this scan: ${decision.newlyAdded.join(", ")}\n` +
         `${url}`;
 
+      // Screenshotting the seat-grid element (rather than fullPage) avoids
+      // the common case of this crash, but the grid itself can STILL render
+      // at an absurd height on some pages (a real Skia allocation crash seen
+      // live: w:1400 h:683521). A failed screenshot must never cost the user
+      // the alert itself — fall back to a text-only message so "seats are
+      // available right now" always gets through even if the image can't.
+      let shot = null;
+      try {
+        await fs.mkdir(SHOTS_DIR, { recursive: true });
+        const shotPath = path.join(SHOTS_DIR, `showtime-${showtimeId}-${Date.now()}.png`);
+        const grid = page.locator('[role="grid"][aria-label="Seat Selection Map"]');
+        if (await grid.count() > 0) {
+          await grid.first().screenshot({ path: shotPath, timeout: 15000 });
+        } else {
+          await page.screenshot({ path: shotPath, timeout: 15000 });
+        }
+        shot = shotPath;
+      } catch (err) {
+        console.error(`  [screenshot failed] ${redact(err.message)} — sending text-only alert instead`);
+      }
+
       try {
         await alert({ caption, imagePath: shot });
-        console.log(`  [ALERT SENT] showtime ${showtimeId}: ${qualifying.join(", ")}`);
+        console.log(`  [ALERT SENT] showtime ${showtimeId}: ${qualifying.join(", ")}${shot ? "" : " (text-only, screenshot failed)"}`);
       } catch (err) {
         console.error(`  [alert failed] ${redact(err.message)}`);
       }
