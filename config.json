@@ -2,11 +2,11 @@
   "_help": "Fill in the fields below for the showing you want to watch. See README section 'Filling in config.json'.",
 
   "movieTitle": "The Odyssey",
+  "format": "IMAX 70MM",
 
-  "_theatresNote": "Any theatre in this list is watched — cast as wide a net as you want. Each needs the theatre's OWN showtimes page (not a movie's cross-theatre listing page — that needs geolocation and doesn't work standalone).",
+  "_theatresNote": "Any theatre in this list is watched. Each needs the theatre's OWN showtimes page (not a movie's cross-theatre listing page — that needs geolocation and doesn't work standalone).",
   "theatres": [
-    { "name": "AMC Lincoln Square 13", "showtimesUrl": "https://www.amctheatres.com/movie-theatres/new-york-city/amc-lincoln-square-13/showtimes" },
-    { "name": "AMC 34th Street 14", "showtimesUrl": "https://www.amctheatres.com/movie-theatres/new-york-city/amc-34th-street-14/showtimes" }
+    { "name": "AMC Lincoln Square 13", "showtimesUrl": "https://www.amctheatres.com/movie-theatres/new-york-city/amc-lincoln-square-13/showtimes" }
   ],
 
   "_autoDiscoverNote": "When enabled, the watcher re-discovers real showtime ids itself (see src/discover.js) for a rolling window, instead of a hand-maintained list — no more manually copying seat URLs or refreshing stale ids.",
@@ -39,8 +39,8 @@
   "farCadenceSeconds": 1800,
   "interShowtimeDelaySeconds": 90,
 
-  "_formatNote": "false = any format qualifies (IMAX 70mm, standard, Dolby, etc.) — cast a wide net rather than restricting to one format.",
-  "requireFormatMatch": false,
+  "_formatNote": "true = only showings matching \"format\" above (IMAX 70MM) qualify.",
+  "requireFormatMatch": true,
 
   "firstRunHeadful": true
 }
