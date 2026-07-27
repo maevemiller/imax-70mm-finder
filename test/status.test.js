@@ -22,9 +22,8 @@ test("formatDuration: negative/zero clamps to 0s", () => {
 const baseState = {
   startedAtMs: 0,
   movieTitle: "The Odyssey",
-  format: "IMAX 70MM",
-  theatreName: "AMC Lincoln Square 13",
-  minAdjacent: 2,
+  theatreNames: "AMC Lincoln Square 13 OR AMC 34th Street 14",
+  minAdjacent: 1,
   activeShowtimesCount: 10,
   lastDiscoveryMs: 0,
   lastCheck: null,
@@ -35,10 +34,22 @@ const now = 3600000; // 1h after start
 
 test("formatStatusMessage: no checks yet", () => {
   const msg = formatStatusMessage(baseState, now);
-  assert.match(msg, /Watching "The Odyssey" \(IMAX 70MM\) @ AMC Lincoln Square 13/);
+  assert.match(msg, /Watching "The Odyssey" @ AMC Lincoln Square 13 OR AMC 34th Street 14/);
   assert.match(msg, /Uptime: 1h 0m/);
   assert.match(msg, /Tracking 10 showtime\(s\)/);
   assert.match(msg, /Last check: none yet/);
+});
+
+test("formatStatusMessage: includes theatre name per result when multiple theatres are tracked", () => {
+  const state = {
+    ...baseState,
+    lastCheck: {
+      atMs: now - 5000,
+      results: [{ showtimeId: "143822231", theatreName: "AMC Lincoln Square 13", available: ["F11"] }],
+    },
+  };
+  const msg = formatStatusMessage(state, now);
+  assert.match(msg, /143822231 \(AMC Lincoln Square 13\): 1 qualifying seat\(s\)!/);
 });
 
 test("formatStatusMessage: reports rate-limited last check", () => {

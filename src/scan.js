@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promises as fs } from "node:fs";
 import { filterAdjacent } from "./seats.js";
+import { bestSeats } from "./rankSeats.js";
 import { decideAlert, readState, writeState } from "./state.js";
 import { alert, redact } from "./notify.js";
 
@@ -39,6 +40,16 @@ export function loadEnv() {
 export function getConfiguredShowtimes(config) {
   if (Array.isArray(config.showtimes)) return config.showtimes;
   if (Array.isArray(config.showtimeIds)) return config.showtimeIds.map((id) => ({ id, datetime: null }));
+  return [];
+}
+
+// Prefers config.theatres ([{name, showtimesUrl}], for watching multiple
+// theatres at once) over the legacy singular config.theatreName/theatreShowtimesUrl.
+export function getConfiguredTheatres(config) {
+  if (Array.isArray(config.theatres) && config.theatres.length > 0) return config.theatres;
+  if (config.theatreShowtimesUrl) {
+    return [{ name: config.theatreName, showtimesUrl: config.theatreShowtimesUrl }];
+  }
   return [];
 }
 
@@ -86,6 +97,7 @@ function extractSeatsInPage() {
   const checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"][name]'));
 
   const available = [];
+  const allSeatIds = []; // every seat found, any status — used to rank available seats by centrality
   let occupied = 0;
   let excludedAccessible = 0;
   const seen = new Set();
@@ -94,6 +106,7 @@ function extractSeatsInPage() {
     const id = (el.getAttribute("name") || "").toUpperCase();
     if (!id || seen.has(id)) continue;
     seen.add(id);
+    allSeatIds.push(id);
 
     const label = el.getAttribute("aria-label") || "";
 
@@ -111,16 +124,16 @@ function extractSeatsInPage() {
       occupied++;
     }
   }
-  return { available, occupied, excludedAccessible, totalCandidates: seen.size };
+  return { available, allSeatIds, occupied, excludedAccessible, totalCandidates: seen.size };
 }
 
 // --- metadata validation ----------------------------------------------------
 
-function validateMetadata(pageText, config, showtimeId) {
+function validateMetadata(pageText, config, showtimeId, theatreName) {
   const text = (pageText || "").toLowerCase();
   const checks = [
     ["movie", config.movieTitle],
-    ["theatre", config.theatreName],
+    ["theatre", theatreName ?? config.theatreName],
     ["format", config.requireFormatMatch ? config.format : null],
   ];
   const mismatches = [];
@@ -168,7 +181,15 @@ export function createPacer(minGapMs) {
 
 // --- one showtime -----------------------------------------------------------
 
-export async function scanShowtime(context, config, showtimeId, pacer) {
+// `showtime` is either a plain id string (legacy/manual config) or an object
+// {id, datetime, theatreName} (from multi-theatre discovery) — theatreName
+// flows through to metadata validation and the alert message so a mixed list
+// of showtimes across several theatres is reported accurately per-showtime,
+// not against one single global config.theatreName.
+export async function scanShowtime(context, config, showtime, pacer) {
+  const showtimeId = typeof showtime === "string" ? showtime : showtime.id;
+  const theatreName = (typeof showtime === "object" && showtime.theatreName) || config.theatreName;
+
   if (pacer) await pacer.wait();
   const url = seatUrl(showtimeId);
   const page = await context.newPage();
@@ -186,12 +207,12 @@ export async function scanShowtime(context, config, showtimeId, pacer) {
     // Give client-rendered seats a chance to appear.
     await page.waitForTimeout(4000);
 
-    const metaOk = validateMetadata(bodyText, config, showtimeId);
+    const metaOk = validateMetadata(bodyText, config, showtimeId, theatreName);
     const raw = await page.evaluate(extractSeatsInPage);
     const qualifying = filterAdjacent(raw.available, config.minAdjacent || 1);
 
     console.log(
-      `  showtime ${showtimeId}: candidates=${raw.totalCandidates} available=${raw.available.length} ` +
+      `  showtime ${showtimeId} (${theatreName}): candidates=${raw.totalCandidates} available=${raw.available.length} ` +
         `occupied=${raw.occupied} accessible-excluded=${raw.excludedAccessible} ` +
         `qualifying(min ${config.minAdjacent || 1})=${qualifying.length} metaOk=${metaOk}`
     );
@@ -201,11 +222,16 @@ export async function scanShowtime(context, config, showtimeId, pacer) {
     await writeState(DATA_DIR, showtimeId, qualifying);
 
     if (decision.shouldAlert) {
+      // With minAdjacent as low as 1, a scan can turn up many qualifying
+      // seats at once — rank them by centrality (row + seat position) and
+      // lead with the best pick(s) rather than dumping a raw list.
+      const ranked = bestSeats(qualifying, raw.allSeatIds, 3);
       const caption =
         `🎬 Seats available!\n` +
-        `${config.movieTitle} (${config.format})\n` +
-        `${config.theatreName}\n` +
-        `Qualifying seats: ${qualifying.join(", ")}\n` +
+        `${config.movieTitle}\n` +
+        `${theatreName}\n` +
+        `Best pick(s): ${ranked.join(", ")}\n` +
+        `All qualifying seats (${qualifying.length}): ${qualifying.join(", ")}\n` +
         `New this scan: ${decision.newlyAdded.join(", ")}\n` +
         `${url}`;
 
@@ -237,7 +263,7 @@ export async function scanShowtime(context, config, showtimeId, pacer) {
         console.error(`  [alert failed] ${redact(err.message)}`);
       }
     }
-    return { showtimeId, available: qualifying, decision };
+    return { showtimeId, theatreName, available: qualifying, decision };
   } finally {
     await page.close();
   }
@@ -253,20 +279,23 @@ function isContextClosedError(message) {
   return /has been closed|target closed/i.test(String(message || ""));
 }
 
-// `ids` defaults to every configured showtime (config.showtimes / legacy
-// config.showtimeIds) — pass an explicit subset (e.g. from watch.js's
-// selectDueShowtimes) to only check the ones that are actually due. `pacer`
-// defaults to a fresh one scoped to this call (fine for a one-off CLI scan);
-// watch.js passes in ONE long-lived pacer shared across every tick so the
-// minimum gap is enforced globally, not just within a single scanAll() call.
-export async function scanAll(context, config, ids, pacer) {
-  const targetIds = ids ?? getConfiguredShowtimes(config).map((s) => s.id);
+// `showtimes` defaults to every configured showtime (config.showtimes /
+// legacy config.showtimeIds) — pass an explicit subset (e.g. from watch.js's
+// selectDueShowtimes) to only check the ones that are actually due. Each
+// entry may be a plain id string (legacy) or a {id, datetime, theatreName}
+// object — scanShowtime() accepts both. `pacer` defaults to a fresh one
+// scoped to this call (fine for a one-off CLI scan); watch.js passes in ONE
+// long-lived pacer shared across every tick so the minimum gap is enforced
+// globally, not just within a single scanAll() call.
+export async function scanAll(context, config, showtimes, pacer) {
+  const targets = showtimes ?? getConfiguredShowtimes(config);
   const activePacer = pacer ?? createPacer((config.interShowtimeDelaySeconds ?? 90) * 1000);
   const results = [];
-  for (const id of targetIds) {
+  for (const target of targets) {
+    const id = typeof target === "string" ? target : target.id;
     let result;
     try {
-      result = await scanShowtime(context, config, id, activePacer);
+      result = await scanShowtime(context, config, target, activePacer);
     } catch (err) {
       if (isContextClosedError(err.message)) {
         console.error(`  [context-closed] browser/context died — aborting batch, will reopen`);
@@ -285,7 +314,7 @@ export async function scanAll(context, config, ids, pacer) {
     // remaining id into the same wall; the watch loop's backoff handles the
     // next attempt.
     if (result.blocked && result.blocked.startsWith("rate-limited")) {
-      const remaining = targetIds.length - results.length;
+      const remaining = targets.length - results.length;
       if (remaining > 0) {
         console.warn(`  [abort] rate-limited — skipping ${remaining} remaining showtime(s) this batch`);
       }
@@ -302,23 +331,23 @@ async function main() {
   const config = await loadConfig();
   const context = await openContext(config);
   try {
-    let ids;
+    let showtimes;
     if (config.autoDiscover?.enabled) {
       // Dynamic import avoids a circular top-level import — discover.js
       // itself imports from this file (loadConfig/loadEnv/openContext/ROOT).
       const { discoverWindow } = await import("./discover.js");
       const windowHours = config.autoDiscover.windowHours ?? 72;
       console.log(`Discovering showtimes for the next ${windowHours}h...`);
-      const { showtimes } = await discoverWindow(context, config, { windowHours, nowMs: Date.now() });
-      ids = showtimes.map((s) => s.id);
+      ({ showtimes } = await discoverWindow(context, config, { windowHours, nowMs: Date.now() }));
     } else {
-      ids = getConfiguredShowtimes(config).map((s) => s.id);
+      showtimes = getConfiguredShowtimes(config);
     }
+    const theatreNames = getConfiguredTheatres(config).map((t) => t.name).join(", ") || config.theatreName;
     console.log(
-      `Dry scan: "${config.movieTitle}" (${config.format}) @ ${config.theatreName} — ` +
-        `${ids.length} showtime(s), minAdjacent=${config.minAdjacent}`
+      `Dry scan: "${config.movieTitle}" @ ${theatreNames} — ` +
+        `${showtimes.length} showtime(s), minAdjacent=${config.minAdjacent}`
     );
-    await scanAll(context, config, ids);
+    await scanAll(context, config, showtimes);
   } finally {
     await context.close();
   }

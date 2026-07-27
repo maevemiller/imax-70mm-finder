@@ -2,10 +2,12 @@
   "_help": "Fill in the fields below for the showing you want to watch. See README section 'Filling in config.json'.",
 
   "movieTitle": "The Odyssey",
-  "format": "IMAX 70MM",
-  "theatreName": "AMC Lincoln Square 13",
 
-  "theatreShowtimesUrl": "https://www.amctheatres.com/movie-theatres/new-york-city/amc-lincoln-square-13/showtimes",
+  "_theatresNote": "Any theatre in this list is watched — cast as wide a net as you want. Each needs the theatre's OWN showtimes page (not a movie's cross-theatre listing page — that needs geolocation and doesn't work standalone).",
+  "theatres": [
+    { "name": "AMC Lincoln Square 13", "showtimesUrl": "https://www.amctheatres.com/movie-theatres/new-york-city/amc-lincoln-square-13/showtimes" },
+    { "name": "AMC 34th Street 14", "showtimesUrl": "PASTE_34TH_STREET_SHOWTIMES_URL_HERE" }
+  ],
 
   "_autoDiscoverNote": "When enabled, the watcher re-discovers real showtime ids itself (see src/discover.js) for a rolling window, instead of a hand-maintained list — no more manually copying seat URLs or refreshing stale ids.",
   "autoDiscover": {
@@ -14,7 +16,7 @@
     "refreshHours": 6
   },
 
-  "minAdjacent": 2,
+  "minAdjacent": 1,
 
   "_scheduleFilterNote": "Narrows discovered showtimes down to a preferred weekly schedule. Days are 0=Sun..6=Sat; hours are local 24h time in timeZone. Current rule: no 2am ever, Mon-Thu only 6pm, Fri 6pm+10pm, Sat/Sun 6am/10am/2pm/6pm/10pm.",
   "scheduleFilter": {
@@ -37,7 +39,8 @@
   "farCadenceSeconds": 1800,
   "interShowtimeDelaySeconds": 90,
 
-  "requireFormatMatch": true,
+  "_formatNote": "false = any format qualifies (IMAX 70mm, standard, Dolby, etc.) — cast a wide net rather than restricting to one format.",
+  "requireFormatMatch": false,
 
   "firstRunHeadful": true
 }

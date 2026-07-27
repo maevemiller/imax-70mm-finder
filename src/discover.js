@@ -16,7 +16,7 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promises as fs } from "node:fs";
-import { loadConfig, loadEnv, openContext, ROOT } from "./scan.js";
+import { loadConfig, loadEnv, openContext, ROOT, getConfiguredTheatres } from "./scan.js";
 import { applyScheduleFilter } from "./schedule.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -120,68 +120,97 @@ const dateUrl = (baseUrl, date) => {
   return `${baseUrl}${sep}date=${date}`;
 };
 
-export async function discoverForDate(context, config, date) {
-  const url = dateUrl(config.theatreShowtimesUrl, date);
+// `theatre` is {name, showtimesUrl} — discovery is always scoped to one
+// theatre's own page at a time (see the movie-cross-theatre-page gotcha in
+// the file header); discoverWindow() below loops this over every configured
+// theatre. `requireFormatMatch` defaults to false — "any format" — since the
+// project widened from IMAX-70mm-only to any showing of the movie.
+export async function discoverForDate(context, config, date, theatre) {
+  const t = theatre || { name: config.theatreName, showtimesUrl: config.theatreShowtimesUrl };
+  const url = dateUrl(t.showtimesUrl, date);
   const page = await context.newPage();
   try {
     const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
     const status = resp ? resp.status() : 0;
     if (status !== 200) {
       const bodyText = await page.evaluate(() => (document.body ? document.body.innerText.slice(0, 500) : ""));
-      return { date, url, status, blocked: true, bodyText, matches: [] };
+      return { date, url, theatreName: t.name, status, blocked: true, bodyText, matches: [] };
     }
     await page.waitForTimeout(5000); // client-rendered content
 
     const candidates = await page.evaluate(extractShowtimeCandidatesInPage);
     const matched = matchShowtimeCards(candidates, {
       movieTitle: config.movieTitle,
-      theatreName: config.theatreName,
+      theatreName: t.name,
       format: config.format,
-      requireFormatMatch: config.requireFormatMatch,
-    });
-    return { date, url, status, blocked: false, candidateCount: candidates.length, matches: matched };
+      requireFormatMatch: config.requireFormatMatch ?? false,
+    }).map((m) => ({ ...m, theatreName: t.name }));
+    return { date, url, theatreName: t.name, status, blocked: false, candidateCount: candidates.length, matches: matched };
   } finally {
     await page.close();
   }
 }
 
 // Discover across a rolling window (e.g. "next 72 hours") instead of explicit
-// dates: computes the calendar dates spanning the window, discovers each,
-// merges + dedupes, then filters precisely to showtimes that both haven't
-// started yet AND fall within windowHours from now.
+// dates, across EVERY configured theatre: computes the calendar dates
+// spanning the window, discovers each theatre x date combination, merges +
+// dedupes, then filters precisely to showtimes that both haven't started yet
+// AND fall within windowHours from now.
 export async function discoverWindow(context, config, { windowHours, nowMs }) {
   const dates = computeDateWindow(nowMs, windowHours);
+  const theatres = getConfiguredTheatres(config);
   const perDate = [];
   const allMatches = [];
-  for (const date of dates) {
-    const result = await discoverForDate(context, config, date);
-    perDate.push(result);
-    if (!result.blocked) allMatches.push(...result.matches);
+  for (const theatre of theatres) {
+    for (const date of dates) {
+      // A bad/misconfigured URL for ONE theatre (e.g. a placeholder that was
+      // never filled in) must not take down discovery for every other
+      // theatre — isolate failures per theatre+date instead of letting them
+      // propagate and crash the whole watcher.
+      let result;
+      try {
+        result = await discoverForDate(context, config, date, theatre);
+      } catch (err) {
+        result = { date, theatreName: theatre.name, blocked: true, bodyText: `[error] ${err.message}`, matches: [] };
+      }
+      perDate.push(result);
+      if (!result.blocked) allMatches.push(...result.matches);
+    }
   }
   const deduped = dedupeShowtimes(allMatches);
   const withinWindow = filterWithinWindow(deduped, nowMs, windowHours).map((m) => ({
     id: m.id,
     datetime: m.datetime,
+    theatreName: m.theatreName,
   }));
   // config.scheduleFilter narrows real AMC availability down to the days/times
-  // the user actually wants (e.g. "no 2am/6am, weekdays only 6pm, Friday
+  // the user actually wants (e.g. "no 2am ever, weekdays only 6pm, Friday
   // 6pm+10pm too") — a no-op when no filter is configured.
   const showtimes = applyScheduleFilter(withinWindow, config.scheduleFilter);
   return { perDate, showtimes };
 }
 
-// Merge discovered ids for one or more explicit dates and, if write=true,
-// replace config.json's showtimes with the result (SKILL.md: "resolve at the
-// start of the day"). Returns the combined showtimes list either way.
+// Merge discovered ids for one or more explicit dates (across every
+// configured theatre) and, if write=true, replace config.json's showtimes
+// with the result (SKILL.md: "resolve at the start of the day"). Returns the
+// combined showtimes list either way.
 export async function discoverAndUpdateConfig(context, config, dates, { write = false } = {}) {
+  const theatres = getConfiguredTheatres(config);
   const allMatches = [];
   const perDate = [];
-  for (const date of dates) {
-    const result = await discoverForDate(context, config, date);
-    perDate.push(result);
-    if (!result.blocked) allMatches.push(...result.matches);
+  for (const theatre of theatres) {
+    for (const date of dates) {
+      let result;
+      try {
+        result = await discoverForDate(context, config, date, theatre);
+      } catch (err) {
+        result = { date, theatreName: theatre.name, blocked: true, bodyText: `[error] ${err.message}`, matches: [] };
+      }
+      perDate.push(result);
+      if (!result.blocked) allMatches.push(...result.matches);
+    }
   }
-  const combined = dedupeShowtimes(allMatches).map((m) => ({ id: m.id, datetime: m.datetime }));
+  const combined = dedupeShowtimes(allMatches).map((m) => ({ id: m.id, datetime: m.datetime, theatreName: m.theatreName }));
 
   if (write && combined.length > 0) {
     await writeShowtimesToConfig(combined);
@@ -219,14 +248,14 @@ async function main() {
       const { perDate, showtimes } = await discoverWindow(context, config, { windowHours, nowMs });
       for (const r of perDate) {
         if (r.blocked) {
-          console.log(`  ${r.date}: BLOCKED (status ${r.status}) — ${r.url}`);
+          console.log(`  ${r.theatreName} ${r.date}: BLOCKED (status ${r.status}) — ${r.url}`);
           console.log(`    ${r.bodyText.split("\n")[0]}`);
         } else {
-          console.log(`  ${r.date}: ${r.matches.length} matching showtime(s) of ${r.candidateCount} candidates (before window filtering)`);
+          console.log(`  ${r.theatreName} ${r.date}: ${r.matches.length} matching showtime(s) of ${r.candidateCount} candidates (before window filtering)`);
         }
       }
       console.log(`\n${showtimes.length} showtime(s) within the next ${windowHours}h:`);
-      for (const s of showtimes) console.log(`  - ${s.id}  (${s.datetime})`);
+      for (const s of showtimes) console.log(`  - ${s.id}  ${s.theatreName}  (${s.datetime})`);
       if (write) {
         await writeShowtimesToConfig(showtimes);
         console.log("\nconfig.json updated (config.showtimes).");
@@ -247,10 +276,10 @@ async function main() {
     const { perDate, combined } = await discoverAndUpdateConfig(context, config, dates, { write });
     for (const r of perDate) {
       if (r.blocked) {
-        console.log(`  ${r.date}: BLOCKED (status ${r.status}) — ${r.url}`);
+        console.log(`  ${r.theatreName} ${r.date}: BLOCKED (status ${r.status}) — ${r.url}`);
         console.log(`    ${r.bodyText.split("\n")[0]}`);
       } else {
-        console.log(`  ${r.date}: found ${r.matches.length} matching showtime(s) of ${r.candidateCount} candidates`);
+        console.log(`  ${r.theatreName} ${r.date}: found ${r.matches.length} matching showtime(s) of ${r.candidateCount} candidates`);
         for (const m of r.matches) console.log(`    - ${m.id}  (${m.datetime || "unknown time"})`);
       }
     }

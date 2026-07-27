@@ -21,6 +21,7 @@ import {
   scanAll,
   createPacer,
   getConfiguredShowtimes,
+  getConfiguredTheatres,
   ROOT,
 } from "./scan.js";
 import { discoverWindow } from "./discover.js";
@@ -75,8 +76,9 @@ async function main() {
   const refreshMs = (config.autoDiscover?.refreshHours ?? 6) * 3600000;
   const pacer = createPacer((config.interShowtimeDelaySeconds ?? 90) * 1000);
 
+  const theatreNames = getConfiguredTheatres(config).map((t) => t.name).join(" OR ") || config.theatreName;
   console.log(
-    `Watching "${config.movieTitle}" (${config.format}) @ ${config.theatreName} | minAdjacent=${config.minAdjacent}\n` +
+    `Watching "${config.movieTitle}" @ ${theatreNames} | minAdjacent=${config.minAdjacent}\n` +
       (autoDiscover
         ? `Auto-discovery: next ${config.autoDiscover.windowHours ?? 72}h, refreshed every ${config.autoDiscover.refreshHours ?? 6}h\n` +
           `Cadence: <${config.nearWindowHours ?? 24}h away every ${config.nearCadenceSeconds ?? 300}s, further out every ${config.farCadenceSeconds ?? 1800}s\n`
@@ -150,8 +152,7 @@ async function main() {
       const state = {
         startedAtMs,
         movieTitle: config.movieTitle,
-        format: config.format,
-        theatreName: config.theatreName,
+        theatreNames,
         minAdjacent: config.minAdjacent,
         activeShowtimesCount: activeShowtimes.length,
         lastDiscoveryMs,
@@ -187,7 +188,7 @@ async function main() {
     lastDiscoveryMs = Date.now();
     markFirstSeen(firstSeenMs, activeShowtimes, lastDiscoveryMs);
     console.log(`Found ${activeShowtimes.length} showtime(s) in the window.`);
-    for (const s of activeShowtimes) console.log(`  - ${s.id}  (${s.datetime})`);
+    for (const s of activeShowtimes) console.log(`  - ${s.id}  ${s.theatreName || ""}  (${s.datetime})`);
   }
 
   let backoff = 0; // extra ms added to the next heartbeat after a rate-limit
@@ -229,7 +230,7 @@ async function main() {
     if (due.length > 0) {
       console.log(`--- checking ${due.length} due showtime(s) @ ${new Date().toLocaleTimeString()}: ${due.map((s) => s.id).join(", ")} ---`);
       try {
-        const results = await scanAll(context, config, due.map((s) => s.id), pacer);
+        const results = await scanAll(context, config, due, pacer);
         lastCheck = { atMs: Date.now(), results };
         rateLimited = results.some((r) => r.blocked && r.blocked.startsWith("rate-limited"));
 

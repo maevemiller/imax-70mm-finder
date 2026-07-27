@@ -13,25 +13,26 @@ export function formatDuration(ms) {
 }
 
 function summarizeResult(r) {
-  if (r.blocked) return `${r.showtimeId}: rate-limited`;
-  if (r.error) return `${r.showtimeId}: error`;
+  const label = r.theatreName ? `${r.showtimeId} (${r.theatreName})` : r.showtimeId;
+  if (r.blocked) return `${label}: rate-limited`;
+  if (r.error) return `${label}: error`;
   if (r.available) {
     return r.available.length > 0
-      ? `${r.showtimeId}: ${r.available.length} qualifying seat(s)!`
-      : `${r.showtimeId}: no qualifying seats`;
+      ? `${label}: ${r.available.length} qualifying seat(s)!`
+      : `${label}: no qualifying seats`;
   }
-  return `${r.showtimeId}: unknown`;
+  return `${label}: unknown`;
 }
 
 // state: {
-//   startedAtMs, movieTitle, format, theatreName, minAdjacent,
+//   startedAtMs, movieTitle, theatreNames, minAdjacent,
 //   activeShowtimesCount, lastDiscoveryMs,
 //   lastCheck: { atMs, results } | null,
 //   backoffMs, nextAttemptAtMs,
 // }
 export function formatStatusMessage(state, nowMs) {
   const lines = [
-    `✅ Watching "${state.movieTitle}" (${state.format}) @ ${state.theatreName}`,
+    `✅ Watching "${state.movieTitle}" @ ${state.theatreNames}`,
     `Uptime: ${formatDuration(nowMs - state.startedAtMs)} | Tracking ${state.activeShowtimesCount} showtime(s) | minAdjacent=${state.minAdjacent}`,
   ];
 
