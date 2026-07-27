@@ -189,6 +189,7 @@ export function createPacer(minGapMs) {
 export async function scanShowtime(context, config, showtime, pacer) {
   const showtimeId = typeof showtime === "string" ? showtime : showtime.id;
   const theatreName = (typeof showtime === "object" && showtime.theatreName) || config.theatreName;
+  const datetime = (typeof showtime === "object" && showtime.datetime) || null;
 
   if (pacer) await pacer.wait();
   const url = seatUrl(showtimeId);
@@ -201,7 +202,7 @@ export async function scanShowtime(context, config, showtime, pacer) {
     const blocked = blockReason(status, bodyText);
     if (blocked) {
       console.warn(`  [block] showtime ${showtimeId}: ${blocked}`);
-      return { showtimeId, blocked, available: [] };
+      return { showtimeId, theatreName, datetime, blocked, available: [] };
     }
 
     // Give client-rendered seats a chance to appear.
@@ -263,7 +264,7 @@ export async function scanShowtime(context, config, showtime, pacer) {
         console.error(`  [alert failed] ${redact(err.message)}`);
       }
     }
-    return { showtimeId, theatreName, available: qualifying, decision };
+    return { showtimeId, theatreName, datetime, available: qualifying, decision };
   } finally {
     await page.close();
   }
@@ -293,18 +294,20 @@ export async function scanAll(context, config, showtimes, pacer) {
   const results = [];
   for (const target of targets) {
     const id = typeof target === "string" ? target : target.id;
+    const datetime = (typeof target === "object" && target.datetime) || null;
+    const theatreName = (typeof target === "object" && target.theatreName) || config.theatreName;
     let result;
     try {
       result = await scanShowtime(context, config, target, activePacer);
     } catch (err) {
       if (isContextClosedError(err.message)) {
         console.error(`  [context-closed] browser/context died — aborting batch, will reopen`);
-        result = { showtimeId: id, error: err.message, contextClosed: true };
+        result = { showtimeId: id, theatreName, datetime, error: err.message, contextClosed: true };
         results.push(result);
         break;
       }
       console.error(`  [error] showtime ${id}: ${redact(err.message)}`);
-      result = { showtimeId: id, error: err.message };
+      result = { showtimeId: id, theatreName, datetime, error: err.message };
     }
     results.push(result);
 

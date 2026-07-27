@@ -12,8 +12,25 @@ export function formatDuration(ms) {
   return `${s}s`;
 }
 
+// Accepts either an ms timestamp (number) or an ISO datetime string — both
+// work directly with the Date constructor. Local (system) time, matching the
+// convention already used for console log timestamps elsewhere in the app.
+export function formatClock(input) {
+  const d = new Date(input);
+  if (Number.isNaN(d.getTime())) return "unknown time";
+  return d.toLocaleString("en-US", {
+    weekday: "short",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function summarizeResult(r) {
-  const label = r.theatreName ? `${r.showtimeId} (${r.theatreName})` : r.showtimeId;
+  const when = r.datetime ? formatClock(r.datetime) : null;
+  const label = [r.showtimeId, when, r.theatreName].filter(Boolean).join(" — ");
   if (r.blocked) return `${label}: rate-limited`;
   if (r.error) return `${label}: error`;
   if (r.available) {
@@ -37,9 +54,10 @@ export function formatStatusMessage(state, nowMs) {
   ];
 
   if (state.lastCheck) {
+    const when = formatClock(state.lastCheck.atMs);
     const ago = formatDuration(nowMs - state.lastCheck.atMs);
-    const summary = state.lastCheck.results.map(summarizeResult).join(", ");
-    lines.push(`Last check: ${ago} ago — ${summary}`);
+    lines.push(`Last check: ${when} (${ago} ago)`);
+    for (const r of state.lastCheck.results) lines.push(`  ${summarizeResult(r)}`);
   } else {
     lines.push("Last check: none yet");
   }
@@ -51,7 +69,7 @@ export function formatStatusMessage(state, nowMs) {
       : `Next attempt in ~${untilNext}`
   );
 
-  lines.push(`Discovery last refreshed ${formatDuration(nowMs - state.lastDiscoveryMs)} ago`);
+  lines.push(`Discovery last refreshed: ${formatClock(state.lastDiscoveryMs)} (${formatDuration(nowMs - state.lastDiscoveryMs)} ago)`);
   lines.push("(message me anytime for this status)");
 
   return lines.join("\n");

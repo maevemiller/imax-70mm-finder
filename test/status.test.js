@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatDuration, formatStatusMessage } from "../src/status.js";
+import { formatDuration, formatClock, formatStatusMessage } from "../src/status.js";
 
 test("formatDuration: seconds only", () => {
   assert.equal(formatDuration(45 * 1000), "45s");
@@ -40,16 +40,41 @@ test("formatStatusMessage: no checks yet", () => {
   assert.match(msg, /Last check: none yet/);
 });
 
-test("formatStatusMessage: includes theatre name per result when multiple theatres are tracked", () => {
+test("formatClock formats an ms timestamp and an ISO string the same way", () => {
+  const iso = "2026-07-28T22:00:00.000Z";
+  const ms = Date.parse(iso);
+  assert.equal(formatClock(ms), formatClock(iso));
+});
+
+test("formatClock returns a fallback for an unparseable input", () => {
+  assert.equal(formatClock("not-a-date"), "unknown time");
+});
+
+test("formatStatusMessage: shows the exact clock time a check happened, not just a relative duration", () => {
+  const state = {
+    ...baseState,
+    lastCheck: { atMs: now - 30000, results: [{ showtimeId: "143822231", blocked: "rate-limited (429)" }] },
+  };
+  const msg = formatStatusMessage(state, now);
+  assert.match(msg, new RegExp(`Last check: ${formatClock(now - 30000).replace(/[()]/g, "\\$&")} \\(30s ago\\)`));
+});
+
+test("formatStatusMessage: includes the showtime's own date/time and theatre, not just its raw id", () => {
   const state = {
     ...baseState,
     lastCheck: {
       atMs: now - 5000,
-      results: [{ showtimeId: "143822231", theatreName: "AMC Lincoln Square 13", available: ["F11"] }],
+      results: [{
+        showtimeId: "143822231",
+        theatreName: "AMC Lincoln Square 13",
+        datetime: "2026-07-28T22:00:00.000Z",
+        available: ["F11"],
+      }],
     },
   };
   const msg = formatStatusMessage(state, now);
-  assert.match(msg, /143822231 \(AMC Lincoln Square 13\): 1 qualifying seat\(s\)!/);
+  const expectedWhen = formatClock("2026-07-28T22:00:00.000Z");
+  assert.match(msg, new RegExp(`143822231 — ${expectedWhen.replace(/[()]/g, "\\$&")} — AMC Lincoln Square 13: 1 qualifying seat\\(s\\)!`));
 });
 
 test("formatStatusMessage: reports rate-limited last check", () => {
@@ -60,7 +85,7 @@ test("formatStatusMessage: reports rate-limited last check", () => {
     nextAttemptAtMs: now + 180000,
   };
   const msg = formatStatusMessage(state, now);
-  assert.match(msg, /Last check: 30s ago — 143822231: rate-limited/);
+  assert.match(msg, /143822231: rate-limited/);
   assert.match(msg, /⏳ Backing off after a rate-limit; next attempt in ~3m 0s/);
 });
 
@@ -91,7 +116,7 @@ test("formatStatusMessage: reports a scan error distinctly from a block", () => 
   assert.match(msg, /143822231: error/);
 });
 
-test("formatStatusMessage: multiple results in one check are all summarized", () => {
+test("formatStatusMessage: multiple results in one check are each shown on their own line", () => {
   const state = {
     ...baseState,
     lastCheck: {
@@ -103,5 +128,6 @@ test("formatStatusMessage: multiple results in one check are all summarized", ()
     },
   };
   const msg = formatStatusMessage(state, now);
-  assert.match(msg, /A: rate-limited, B: no qualifying seats/);
+  assert.match(msg, /A: rate-limited/);
+  assert.match(msg, /B: no qualifying seats/);
 });
