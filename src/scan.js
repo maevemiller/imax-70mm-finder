@@ -311,18 +311,15 @@ export async function scanAll(context, config, showtimes, pacer) {
     }
     results.push(result);
 
-    // Retrying into an active ban makes it WORSE, not better — Cloudflare's
-    // retry-after grew from 234s to 362s across repeated hits during testing.
-    // Stop the rest of this batch immediately rather than grinding every
-    // remaining id into the same wall; the watch loop's backoff handles the
-    // next attempt.
-    if (result.blocked && result.blocked.startsWith("rate-limited")) {
-      const remaining = targets.length - results.length;
-      if (remaining > 0) {
-        console.warn(`  [abort] rate-limited — skipping ${remaining} remaining showtime(s) this batch`);
-      }
-      break;
-    }
+    // NOTE: a rate-limited result does NOT abort the rest of the batch —
+    // every request (including this next one) already goes through the same
+    // 90s pacer regardless of block state, so continuing isn't the rapid
+    // retry-into-an-active-ban pattern that made bans worse during testing
+    // (234s->362s escalation came from separate ad-hoc scripts firing with
+    // NO pacer spacing at all). Blocks have also proven not to be all-or-
+    // nothing in practice — plenty of observed cases had one showtime blocked
+    // and the very next (90s later) succeed. The watch loop's backoff still
+    // grows for the next full cycle if ANY result in this batch was blocked.
   }
   return results;
 }
