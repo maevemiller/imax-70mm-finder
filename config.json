@@ -6,7 +6,7 @@
   "_theatresNote": "Any theatre in this list is watched — cast as wide a net as you want. Each needs the theatre's OWN showtimes page (not a movie's cross-theatre listing page — that needs geolocation and doesn't work standalone).",
   "theatres": [
     { "name": "AMC Lincoln Square 13", "showtimesUrl": "https://www.amctheatres.com/movie-theatres/new-york-city/amc-lincoln-square-13/showtimes" },
-    { "name": "AMC 34th Street 14", "showtimesUrl": "PASTE_34TH_STREET_SHOWTIMES_URL_HERE" }
+    { "name": "AMC 34th Street 14", "showtimesUrl": "https://www.amctheatres.com/movie-theatres/new-york-city/amc-34th-street-14/showtimes" }
   ],
 
   "_autoDiscoverNote": "When enabled, the watcher re-discovers real showtime ids itself (see src/discover.js) for a rolling window, instead of a hand-maintained list — no more manually copying seat URLs or refreshing stale ids.",
@@ -16,17 +16,17 @@
     "refreshHours": 6
   },
 
-  "minAdjacent": 1,
+  "minAdjacent": 3,
 
-  "_scheduleFilterNote": "Narrows discovered showtimes down to a preferred weekly schedule. Days are 0=Sun..6=Sat; hours are local 24h time in timeZone. Current rule: no 2am ever, Mon-Thu only 6pm, Fri 6pm+10pm, Sat/Sun 6am/10am/2pm/6pm/10pm.",
+  "_scheduleFilterNote": "Narrows discovered showtimes down to a preferred weekly schedule. Days are 0=Sun..6=Sat; hours are local 24h time in timeZone. Current rule: weekdays (Mon-Fri) only 6pm and later, Sat/Sun 6am/10am/2pm/6pm/10pm.",
   "scheduleFilter": {
     "timeZone": "America/New_York",
     "allowedHoursByDay": {
       "0": [6, 10, 14, 18, 22],
-      "1": [18],
-      "2": [18],
-      "3": [18],
-      "4": [18],
+      "1": [18, 22],
+      "2": [18, 22],
+      "3": [18, 22],
+      "4": [18, 22],
       "5": [18, 22],
       "6": [6, 10, 14, 18, 22]
     }
