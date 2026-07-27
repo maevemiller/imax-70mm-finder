@@ -18,17 +18,17 @@
 
   "minAdjacent": 3,
 
-  "_scheduleFilterNote": "Narrows discovered showtimes down to a preferred weekly schedule. Days are 0=Sun..6=Sat; hours are local 24h time in timeZone. Current rule: weekdays (Mon-Fri) only 6pm and later, Sat/Sun 6am/10am/2pm/6pm/10pm.",
+  "_scheduleFilterNote": "Narrows discovered showtimes down to a preferred weekly schedule. Days are 0=Sun..6=Sat. A value can be an exact-hour list (e.g. [6,10,14,18,22] — ONLY those hours) or a range {min, max} (e.g. {min:18} = 6pm onwards, any minute, no upper bound). Current rule: weekdays (Mon-Fri) 6pm onwards (any time after, not just on-the-hour slots), Sat/Sun unrestricted from 6am onwards.",
   "scheduleFilter": {
     "timeZone": "America/New_York",
     "allowedHoursByDay": {
-      "0": [6, 10, 14, 18, 22],
-      "1": [18, 22],
-      "2": [18, 22],
-      "3": [18, 22],
-      "4": [18, 22],
-      "5": [18, 22],
-      "6": [6, 10, 14, 18, 22]
+      "0": { "min": 6 },
+      "1": { "min": 18 },
+      "2": { "min": 18 },
+      "3": { "min": 18 },
+      "4": { "min": 18 },
+      "5": { "min": 18 },
+      "6": { "min": 6 }
     }
   },
 

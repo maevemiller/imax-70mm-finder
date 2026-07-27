@@ -186,3 +186,52 @@ test("real showtime list: filters down to exactly the requested schedule", () =>
   ]);
   assert.equal(kept.length, 10);
 });
+
+// --- range-based hour rules ("6pm onwards", not just exact 6pm/10pm) -------
+// An exact-hour list like [18, 22] only matches those specific hours — a
+// real showtime at 7:15pm (hour 19) would be wrongly excluded. A range rule
+// ({min, max}) covers "onwards"/"until" cases correctly.
+
+const rangeFilter = {
+  timeZone: NY,
+  allowedHoursByDay: {
+    1: { min: 18 }, // Mon — 6pm onwards, no upper bound
+  },
+};
+
+test("isShowtimeAllowed: range rule allows any hour at or after min", () => {
+  // Monday 7:15pm EDT -> 23:15 UTC, hour 19 (not an exact 18/22 match, but IS >= 18).
+  assert.equal(isShowtimeAllowed("2026-07-27T23:15:00.000Z", rangeFilter), true);
+});
+
+test("isShowtimeAllowed: range rule rejects an hour before min", () => {
+  // Monday 2pm EDT -> 18:00 UTC, hour 14.
+  assert.equal(isShowtimeAllowed("2026-07-27T18:00:00.000Z", rangeFilter), false);
+});
+
+test("isShowtimeAllowed: range rule with only max excludes anything past it", () => {
+  const filter = { timeZone: NY, allowedHoursByDay: { 1: { max: 21 } } };
+  // Monday 10pm EDT -> hour 22, past max 21.
+  assert.equal(isShowtimeAllowed("2026-07-28T02:00:00.000Z", filter), false);
+  // Monday 9pm EDT -> hour 21, at max.
+  assert.equal(isShowtimeAllowed("2026-07-28T01:00:00.000Z", filter), true);
+});
+
+test("isShowtimeAllowed: range rule with both min and max bounds both ends", () => {
+  const filter = { timeZone: NY, allowedHoursByDay: { 1: { min: 18, max: 20 } } };
+  assert.equal(isShowtimeAllowed("2026-07-27T22:00:00.000Z", filter), true); // 6pm, in range
+  assert.equal(isShowtimeAllowed("2026-07-28T01:30:00.000Z", filter), false); // 9:30pm, past max
+});
+
+test("real 34th-street-style minute-offset showtimes now match a range rule", () => {
+  // Actual discovered showtimes from a live run: 10:20pm, 10:30pm, 10:50pm —
+  // none exactly on the hour boundary the old exact-list rule expected.
+  const filter = { timeZone: NY, allowedHoursByDay: { 1: { min: 18 } } };
+  const showtimes = [
+    { id: "a", datetime: "2026-07-28T02:20:00.000Z" }, // Mon 10:20pm EDT
+    { id: "b", datetime: "2026-07-28T02:30:00.000Z" }, // Mon 10:30pm EDT
+    { id: "c", datetime: "2026-07-28T02:50:00.000Z" }, // Mon 10:50pm EDT
+    { id: "d", datetime: "2026-07-27T18:15:00.000Z" }, // Mon 2:15pm EDT -> excluded
+  ];
+  assert.deepEqual(applyScheduleFilter(showtimes, filter).map((s) => s.id), ["a", "b", "c"]);
+});

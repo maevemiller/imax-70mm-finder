@@ -86,16 +86,36 @@ export function localDayHour(datetimeIso, timeZone) {
   return { dayOfWeek: WEEKDAY_INDEX[weekdayStr], hour };
 }
 
-// scheduleFilter: { timeZone: "America/New_York", allowedHoursByDay: { "0": [10,14,18,22], ... } }
-// (keys are day-of-week 0=Sun..6=Sat, values are allowed local hours-of-day).
-// No filter configured, or a day missing from the table, allows everything —
-// a filter should be explicit about every day it means to restrict.
+// A day's rule is either:
+//   - an array of exact allowed hours, e.g. [10, 14, 18, 22] (only those
+//     hours — a showtime at 19:00 would NOT match [18, 22], since it's a
+//     different hour entirely), or
+//   - a range object, e.g. {min: 18} ("6pm onwards, no upper bound"),
+//     {max: 21} (up to but not past 9pm), or {min: 18, max: 22}. Real
+//     showtimes land at all sorts of minutes/hours, so a range is usually
+//     the right tool for "X onwards" — an exact list only matches those
+//     specific hours.
+function hourAllowed(hour, rule) {
+  if (Array.isArray(rule)) return rule.includes(hour);
+  if (rule && typeof rule === "object") {
+    if (rule.min != null && hour < rule.min) return false;
+    if (rule.max != null && hour > rule.max) return false;
+    return true;
+  }
+  return true;
+}
+
+// scheduleFilter: { timeZone: "America/New_York", allowedHoursByDay: { "0": [10,14,18,22], "1": {min: 18}, ... } }
+// (keys are day-of-week 0=Sun..6=Sat, values are an hour list or range — see
+// hourAllowed above). No filter configured, or a day missing from the table,
+// allows everything — a filter should be explicit about every day it means
+// to restrict.
 export function isShowtimeAllowed(datetimeIso, scheduleFilter) {
   if (!scheduleFilter?.allowedHoursByDay) return true;
   const { dayOfWeek, hour } = localDayHour(datetimeIso, scheduleFilter.timeZone);
-  const allowed = scheduleFilter.allowedHoursByDay[String(dayOfWeek)];
-  if (!allowed) return true;
-  return allowed.includes(hour);
+  const rule = scheduleFilter.allowedHoursByDay[String(dayOfWeek)];
+  if (!rule) return true;
+  return hourAllowed(hour, rule);
 }
 
 export function applyScheduleFilter(showtimes, scheduleFilter) {
