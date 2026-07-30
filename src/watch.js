@@ -24,7 +24,7 @@ import {
   getConfiguredTheatres,
   ROOT,
 } from "./scan.js";
-import { discoverWindow } from "./discover.js";
+import { discoverWindow, resolveWindowHours } from "./discover.js";
 import { readLastCheckedMs } from "./state.js";
 import { selectDueShowtimes, nextDueAtMs } from "./schedule.js";
 import { redact, getUpdates, isFromConfiguredChat, sendMessage } from "./notify.js";
@@ -40,7 +40,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TELEGRAM_POLL_MS = 20000;
 
 async function runDiscovery(context, config) {
-  const windowHours = config.autoDiscover?.windowHours ?? 72;
+  const windowHours = resolveWindowHours(config.autoDiscover, Date.now());
   const { showtimes } = await discoverWindow(context, config, { windowHours, nowMs: Date.now() });
   return showtimes;
 }
@@ -77,10 +77,13 @@ async function main() {
   const pacer = createPacer((config.interShowtimeDelaySeconds ?? 90) * 1000);
 
   const theatreNames = getConfiguredTheatres(config).map((t) => t.name).join(" OR ") || config.theatreName;
+  const initialWindowHours = resolveWindowHours(config.autoDiscover, Date.now());
   console.log(
     `Watching "${config.movieTitle}" @ ${theatreNames} | minAdjacent=${config.minAdjacent}\n` +
       (autoDiscover
-        ? `Auto-discovery: next ${config.autoDiscover.windowHours ?? 72}h, refreshed every ${config.autoDiscover.refreshHours ?? 6}h\n` +
+        ? (config.autoDiscover.untilDate
+            ? `Auto-discovery: now through ${config.autoDiscover.untilDate} (~${Math.round(initialWindowHours / 24)} days), refreshed every ${config.autoDiscover.refreshHours ?? 6}h\n`
+            : `Auto-discovery: next ${Math.round(initialWindowHours)}h, refreshed every ${config.autoDiscover.refreshHours ?? 6}h\n`) +
           `Cadence: <${config.nearWindowHours ?? 24}h away every ${config.nearCadenceSeconds ?? 300}s, further out every ${config.farCadenceSeconds ?? 1800}s\n`
         : `showtimes: ${getConfiguredShowtimes(config).map((s) => s.id).join(", ")}\n`) +
       `Press Ctrl+C to stop.\n`

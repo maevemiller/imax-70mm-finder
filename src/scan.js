@@ -335,9 +335,9 @@ async function main() {
     if (config.autoDiscover?.enabled) {
       // Dynamic import avoids a circular top-level import — discover.js
       // itself imports from this file (loadConfig/loadEnv/openContext/ROOT).
-      const { discoverWindow } = await import("./discover.js");
-      const windowHours = config.autoDiscover.windowHours ?? 72;
-      console.log(`Discovering showtimes for the next ${windowHours}h...`);
+      const { discoverWindow, resolveWindowHours } = await import("./discover.js");
+      const windowHours = resolveWindowHours(config.autoDiscover, Date.now());
+      console.log(`Discovering showtimes for the next ${Math.round(windowHours)}h...`);
       ({ showtimes } = await discoverWindow(context, config, { windowHours, nowMs: Date.now() }));
     } else {
       showtimes = getConfiguredShowtimes(config);

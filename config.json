@@ -9,10 +9,10 @@
     { "name": "AMC Lincoln Square 13", "showtimesUrl": "https://www.amctheatres.com/movie-theatres/new-york-city/amc-lincoln-square-13/showtimes" }
   ],
 
-  "_autoDiscoverNote": "When enabled, the watcher re-discovers real showtime ids itself (see src/discover.js) for a rolling window, instead of a hand-maintained list — no more manually copying seat URLs or refreshing stale ids.",
+  "_autoDiscoverNote": "When enabled, the watcher re-discovers real showtime ids itself (see src/discover.js) instead of a hand-maintained list. untilDate is a fixed calendar cutoff (IMAX 70mm confirmed running through this date) — the window shrinks day by day toward it rather than drifting forward like a static windowHours would. AMC likely won't have tickets on sale that far out yet; discovery will just pick up more real showtimes automatically as they're released, refreshed every refreshHours.",
   "autoDiscover": {
     "enabled": true,
-    "windowHours": 72,
+    "untilDate": "2026-09-16",
     "refreshHours": 6
   },
 

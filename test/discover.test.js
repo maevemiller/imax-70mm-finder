@@ -6,6 +6,7 @@ import {
   dedupeShowtimes,
   computeDateWindow,
   filterWithinWindow,
+  resolveWindowHours,
 } from "../src/discover.js";
 
 const config = {
@@ -110,4 +111,44 @@ test("filterWithinWindow drops entries with unparseable datetime", () => {
   const now = Date.parse("2026-07-24T12:00:00.000Z");
   const showtimes = [{ id: "bad", datetime: "not-a-date" }];
   assert.deepEqual(filterWithinWindow(showtimes, now, 72), []);
+});
+
+// --- resolveWindowHours (fixed-cutoff-date discovery, e.g. "runs through Sept 16") ---
+
+test("resolveWindowHours: no autoDiscover config falls back to the 72h default", () => {
+  const now = Date.parse("2026-07-30T12:00:00.000Z");
+  assert.equal(resolveWindowHours(undefined, now), 72);
+});
+
+test("resolveWindowHours: uses windowHours when no untilDate is set", () => {
+  const now = Date.parse("2026-07-30T12:00:00.000Z");
+  assert.equal(resolveWindowHours({ windowHours: 48 }, now), 48);
+});
+
+test("resolveWindowHours: computes hours until end of the untilDate", () => {
+  const now = Date.parse("2026-07-30T12:00:00.000Z");
+  const hours = resolveWindowHours({ untilDate: "2026-09-16" }, now);
+  // 2026-07-30T12:00Z -> 2026-09-16T23:59:59Z is 48 days, 11h, 59m, 59s.
+  const expectedMs = Date.parse("2026-09-16T23:59:59Z") - now;
+  assert.equal(hours, expectedMs / 3600000);
+  assert.ok(hours > 48 * 24 && hours < 49 * 24, "should be roughly 48 days out");
+});
+
+test("resolveWindowHours: shrinks day by day as the fixed cutoff approaches (doesn't drift forward)", () => {
+  const untilDate = "2026-09-16";
+  const dayLaterMs = 24 * 3600000;
+  const earlier = resolveWindowHours({ untilDate }, Date.parse("2026-09-01T00:00:00.000Z"));
+  const later = resolveWindowHours({ untilDate }, Date.parse("2026-09-01T00:00:00.000Z") + dayLaterMs);
+  assert.ok(later < earlier, "window should shrink as time passes toward a fixed cutoff");
+  assert.ok(earlier - later > 23 && earlier - later < 25, "should shrink by ~24h per day");
+});
+
+test("resolveWindowHours: clamps to 0 (not negative) once the cutoff has passed", () => {
+  const now = Date.parse("2026-09-20T12:00:00.000Z"); // after the Sept 16 cutoff
+  assert.equal(resolveWindowHours({ untilDate: "2026-09-16" }, now), 0);
+});
+
+test("resolveWindowHours: falls back to windowHours if untilDate is unparseable", () => {
+  const now = Date.parse("2026-07-30T12:00:00.000Z");
+  assert.equal(resolveWindowHours({ untilDate: "not-a-date", windowHours: 72 }, now), 72);
 });

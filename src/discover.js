@@ -80,6 +80,23 @@ export function computeDateWindow(nowMs, windowHours) {
   return dates;
 }
 
+// Resolves the discovery window in hours. If autoDiscoverConfig.untilDate is
+// set (e.g. "2026-09-16" — a fixed calendar cutoff, like "IMAX 70mm runs
+// through this date"), the window is computed dynamically as "now until end
+// of that day" — correctly SHRINKING day by day as the cutoff approaches,
+// unlike a static windowHours which would keep drifting forward past the
+// intended cutoff. Falls back to windowHours (default 72) when no untilDate.
+export function resolveWindowHours(autoDiscoverConfig, nowMs) {
+  const untilDate = autoDiscoverConfig?.untilDate;
+  if (untilDate) {
+    const untilMs = Date.parse(`${untilDate}T23:59:59Z`);
+    if (!Number.isNaN(untilMs)) {
+      return Math.max(0, (untilMs - nowMs) / 3600000);
+    }
+  }
+  return autoDiscoverConfig?.windowHours ?? 72;
+}
+
 // Keep only showtimes starting within [nowMs, nowMs + windowHours], dropping
 // ones that have already started or that are further out than the window.
 export function filterWithinWindow(showtimes, nowMs, windowHours) {
