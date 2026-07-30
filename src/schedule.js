@@ -1,8 +1,41 @@
 // Pure scheduling logic for the rolling-discovery watch loop — no browser, no
 // network, fully unit-testable. Decides which showtimes are "due" for a check
 // based on how soon they start: showtimes under `nearWindowHours` away are
-// checked every `nearCadenceSeconds`; the rest (out to the discovery window)
-// every `farCadenceSeconds`. Showtimes that have already started are skipped.
+// checked every `nearCadenceSeconds`; showtimes on a date in config.priorityDates
+// (e.g. specific weekends the user cares more about) are checked every
+// `priorityCadenceSeconds` regardless of how far out they are; everything
+// else (out to the discovery window) every `farCadenceSeconds`. Showtimes
+// that have already started are skipped.
+//
+// The three tiers all share ONE fixed live-request throughput (the pacer in
+// src/scan.js caps this at one check per interShowtimeDelaySeconds, e.g.
+// 90s = ~40/hour total, regardless of tier). Marking dates as priority
+// doesn't raise that ceiling — it makes those showtimes "due" more often, so
+// they win a larger share of the limited shared checks at the expense of far
+// -tier ones, rather than guaranteeing an absolute check rate.
+
+// YYYY-MM-DD in `timeZone` for a UTC ISO datetime (for matching against
+// config.priorityDates, which are plain calendar dates, not full timestamps).
+export function localDateString(datetimeIso, timeZone) {
+  const date = new Date(datetimeIso);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const y = parts.find((p) => p.type === "year").value;
+  const m = parts.find((p) => p.type === "month").value;
+  const d = parts.find((p) => p.type === "day").value;
+  return `${y}-${m}-${d}`;
+}
+
+export function isPriorityDate(datetimeIso, config) {
+  const dates = config.priorityDates;
+  if (!dates || dates.length === 0) return false;
+  const timeZone = config.scheduleFilter?.timeZone;
+  return dates.includes(localDateString(datetimeIso, timeZone));
+}
 
 // Returns the check interval in seconds for a showtime starting at
 // `datetimeIso`, or null if it should be skipped (already started/unknown-past).
@@ -11,6 +44,7 @@
 export function pickCadenceSeconds(datetimeIso, nowMs, config) {
   const near = config.nearCadenceSeconds ?? 300;
   const far = config.farCadenceSeconds ?? 1800;
+  const priority = config.priorityCadenceSeconds ?? near;
   const nearWindowMs = (config.nearWindowHours ?? 24) * 3600000;
 
   if (!datetimeIso) return near;
@@ -19,7 +53,9 @@ export function pickCadenceSeconds(datetimeIso, nowMs, config) {
   if (Number.isNaN(startMs)) return near;
   if (startMs <= nowMs) return null; // already started — skip
 
-  return startMs - nowMs <= nearWindowMs ? near : far;
+  if (startMs - nowMs <= nearWindowMs) return near;
+  if (isPriorityDate(datetimeIso, config)) return priority;
+  return far;
 }
 
 // A showtime is due if it's never been checked, or enough time has passed

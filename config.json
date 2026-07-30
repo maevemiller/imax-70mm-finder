@@ -39,6 +39,10 @@
   "farCadenceSeconds": 1800,
   "interShowtimeDelaySeconds": 90,
 
+  "_priorityDatesNote": "Showtimes on these dates are checked every priorityCadenceSeconds instead of the plain farCadenceSeconds, even while still weeks away — last weekend of Aug (29-30) + first two weekends of Sept (5-6, 12-13). All tiers still share ONE fixed request rate (one check per interShowtimeDelaySeconds, ~40/hour total) — this doesn't raise that ceiling, it just makes these showtimes due more often so they win a bigger share of it.",
+  "priorityDates": ["2026-08-29", "2026-08-30", "2026-09-05", "2026-09-06", "2026-09-12", "2026-09-13"],
+  "priorityCadenceSeconds": 900,
+
   "_formatNote": "true = only showings matching \"format\" above (IMAX 70MM) qualify.",
   "requireFormatMatch": true,
 

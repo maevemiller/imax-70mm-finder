@@ -6,6 +6,8 @@ import {
   selectDueShowtimes,
   nextDueAtMs,
   localDayHour,
+  localDateString,
+  isPriorityDate,
   isShowtimeAllowed,
   applyScheduleFilter,
 } from "../src/schedule.js";
@@ -40,6 +42,52 @@ test("pickCadenceSeconds: no datetime known defaults to near cadence (safe defau
 
 test("pickCadenceSeconds: unparseable datetime defaults to near cadence", () => {
   assert.equal(pickCadenceSeconds("not-a-date", now, config), 300);
+});
+
+// --- priority dates (specific weekends checked faster than regular far-tier) ---
+
+test("localDateString: converts a UTC datetime to a local YYYY-MM-DD", () => {
+  // 2026-08-30T02:00:00Z - 4h (EDT) = 2026-08-29T22:00 local -> still Aug 29.
+  assert.equal(localDateString("2026-08-30T02:00:00.000Z", "America/New_York"), "2026-08-29");
+});
+
+const priorityConfig = {
+  nearWindowHours: 24,
+  nearCadenceSeconds: 300,
+  farCadenceSeconds: 1800,
+  priorityCadenceSeconds: 900,
+  priorityDates: ["2026-08-29", "2026-08-30", "2026-09-05", "2026-09-06", "2026-09-12", "2026-09-13"],
+  scheduleFilter: { timeZone: "America/New_York" },
+};
+
+test("isPriorityDate: true for a showtime whose local date is in the priority list", () => {
+  assert.equal(isPriorityDate("2026-08-29T22:00:00.000Z", priorityConfig), true); // 6pm EDT Aug 29
+});
+
+test("isPriorityDate: false for a showtime not on a priority date", () => {
+  assert.equal(isPriorityDate("2026-08-20T22:00:00.000Z", priorityConfig), false);
+});
+
+test("isPriorityDate: false when no priorityDates are configured", () => {
+  assert.equal(isPriorityDate("2026-08-29T22:00:00.000Z", { ...priorityConfig, priorityDates: undefined }), false);
+});
+
+test("pickCadenceSeconds: a far-future showtime on a priority date uses priorityCadenceSeconds, not farCadenceSeconds", () => {
+  const nowFar = Date.parse("2026-07-30T12:00:00.000Z"); // weeks before the priority weekend
+  const priorityShowtime = "2026-08-29T22:00:00.000Z"; // 6pm EDT Aug 29, weeks away
+  assert.equal(pickCadenceSeconds(priorityShowtime, nowFar, priorityConfig), 900);
+});
+
+test("pickCadenceSeconds: a priority-date showtime that's already near uses near cadence, not priority", () => {
+  const nowClose = Date.parse("2026-08-29T14:00:00.000Z"); // 6h before the 6pm showing
+  const priorityShowtime = "2026-08-29T22:00:00.000Z";
+  assert.equal(pickCadenceSeconds(priorityShowtime, nowClose, priorityConfig), 300);
+});
+
+test("pickCadenceSeconds: a non-priority far showtime still uses plain farCadenceSeconds", () => {
+  const nowFar = Date.parse("2026-07-30T12:00:00.000Z");
+  const regularShowtime = "2026-08-20T22:00:00.000Z"; // not a priority date
+  assert.equal(pickCadenceSeconds(regularShowtime, nowFar, priorityConfig), 1800);
 });
 
 test("isDue: never checked before is always due", () => {
