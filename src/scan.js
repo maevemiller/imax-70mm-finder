@@ -6,9 +6,10 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promises as fs } from "node:fs";
 import { filterAdjacent } from "./seats.js";
-import { bestSeats } from "./rankSeats.js";
+import { bestConsecutiveBlock, bestSeats } from "./rankSeats.js";
 import { decideAlert, readState, writeState } from "./state.js";
 import { alert, redact } from "./notify.js";
+import { formatClock } from "./status.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(__dirname, "..");
@@ -223,34 +224,50 @@ export async function scanShowtime(context, config, showtime, pacer) {
     await writeState(DATA_DIR, showtimeId, qualifying);
 
     if (decision.shouldAlert) {
-      // With minAdjacent as low as 1, a scan can turn up many qualifying
-      // seats at once — rank them by centrality (row + seat position) and
-      // lead with the best pick(s) rather than dumping a raw list.
-      const ranked = bestSeats(qualifying, raw.allSeatIds, 3);
+      // A genuine run of 4 SEATS TOGETHER, not just the top-4 individually-
+      // ranked seats (which aren't guaranteed to be adjacent to each other).
+      // Falls back to individually-best seats if nothing has a run that long.
+      const block = bestConsecutiveBlock(qualifying, raw.allSeatIds, 4);
+      const when = datetime ? formatClock(datetime) : "date/time unknown";
       const caption =
         `🎬 Seats available!\n` +
         `${config.movieTitle}\n` +
         `${theatreName}\n` +
-        `Best pick(s): ${ranked.join(", ")}\n` +
+        `${when}\n` +
+        (block
+          ? `Best 4 together: ${block.join(", ")}\n`
+          : `No 4-in-a-row block found — best individual picks: ${bestSeats(qualifying, raw.allSeatIds, 4).join(", ")}\n`) +
         `All qualifying seats (${qualifying.length}): ${qualifying.join(", ")}\n` +
         `New this scan: ${decision.newlyAdded.join(", ")}\n` +
         `${url}`;
 
-      // Screenshotting the seat-grid element (rather than fullPage) avoids
-      // the common case of this crash, but the grid itself can STILL render
-      // at an absurd height on some pages (a real Skia allocation crash seen
-      // live: w:1400 h:683521). A failed screenshot must never cost the user
-      // the alert itself — fall back to a text-only message so "seats are
-      // available right now" always gets through even if the image can't.
+      // The seat-grid element can report an absurd height to Playwright's own
+      // element.screenshot() (a real crash seen live: w:1400 h:683521 — a
+      // Skia allocation failure). Reading the bounding box ourselves and
+      // clamping it to the actual viewport before taking a CLIPPED page
+      // screenshot sidesteps Playwright's "scroll to capture the full
+      // element" logic entirely, so the same bad height can't crash it. A
+      // failed screenshot must never cost the user the alert itself — fall
+      // back to text-only so "seats are available right now" always gets
+      // through even if the image can't.
       let shot = null;
       try {
         await fs.mkdir(SHOTS_DIR, { recursive: true });
         const shotPath = path.join(SHOTS_DIR, `showtime-${showtimeId}-${Date.now()}.png`);
         const grid = page.locator('[role="grid"][aria-label="Seat Selection Map"]');
-        if (await grid.count() > 0) {
-          await grid.first().screenshot({ path: shotPath, timeout: 15000 });
+        const viewport = page.viewportSize() || { width: 1400, height: 1000 };
+        const target = (await grid.count()) > 0 ? grid.first() : page.locator("body");
+        const box = await target.boundingBox();
+        if (box) {
+          const clip = {
+            x: Math.max(0, box.x),
+            y: Math.max(0, box.y),
+            width: Math.min(box.width, viewport.width),
+            height: Math.min(box.height, viewport.height),
+          };
+          await page.screenshot({ path: shotPath, clip, timeout: 15000 });
         } else {
-          await page.screenshot({ path: shotPath, timeout: 15000 });
+          await page.screenshot({ path: shotPath, timeout: 15000 }); // fallback: viewport only
         }
         shot = shotPath;
       } catch (err) {
